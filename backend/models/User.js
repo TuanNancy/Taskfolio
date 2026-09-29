@@ -18,11 +18,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Email không hợp lệ"],
+      maxlength: 254,
     },
     password: {
       type: String,
       required: [true, "Password là bắt buộc"],
       minlength: [6, "Password phải có ít nhất 6 ký tự"],
+      select: false,
     },
   },
   { timestamps: true }

@@ -6,6 +6,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
 backend/.env
 frontend/.env
 
@@ -35,4 +37,8 @@ Thumbs.db
 # Misc
 .cache/
 .temp/
+coverage/
+playwright-report/
+test-results/
 
+docs/

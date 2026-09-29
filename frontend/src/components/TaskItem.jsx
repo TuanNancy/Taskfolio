@@ -6,8 +6,9 @@ const formatDate = (dateString) => {
   if (!dateString) return "";
   const date = new Date(dateString);
   const now = new Date();
-  const diffTime = Math.abs(now - date);
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  if (Number.isNaN(date.getTime())) return "Không rõ thời gian";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
 
   const options = {
     year: "numeric",
@@ -17,18 +18,16 @@ const formatDate = (dateString) => {
     minute: "2-digit",
   };
 
-  if (diffDays === 0) {
+  if (date.toDateString() === now.toDateString()) {
     return `Hôm nay, ${date.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
-  } else if (diffDays === 1) {
+  } else if (date.toDateString() === yesterday.toDateString()) {
     return `Hôm qua, ${date.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
       minute: "2-digit",
     })}`;
-  } else if (diffDays < 7) {
-    return `${diffDays} ngày trước`;
   } else {
     return date.toLocaleDateString("vi-VN", options);
   }
@@ -44,6 +43,7 @@ const TaskItem = ({
   onCancelEdit,
   onDelete,
   onEditTitleChange,
+  pending = false,
 }) => {
   return (
     <div
@@ -54,6 +54,9 @@ const TaskItem = ({
       }`}
     >
       <Button
+        aria-label={`Hoàn thành: ${task.title}`}
+        aria-pressed={task.status === "completed"}
+        disabled={pending || editingId === task._id}
         size="icon"
         variant="ghost"
         onClick={() => onToggle(task._id)}
@@ -72,9 +75,15 @@ const TaskItem = ({
       {editingId === task._id ? (
         <div className="flex-1 flex gap-2">
           <Input
+            aria-label="Sửa tiêu đề"
+            maxLength={200}
+            disabled={pending}
             value={editingTitle}
             onChange={(e) => onEditTitleChange(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && onSaveEdit(task._id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onSaveEdit(task._id);
+              if (e.key === "Escape") onCancelEdit();
+            }}
             className="flex-1"
             autoFocus
           />
@@ -82,6 +91,8 @@ const TaskItem = ({
             size="icon"
             variant="ghost"
             onClick={() => onSaveEdit(task._id)}
+            aria-label="Lưu chỉnh sửa"
+            disabled={pending}
           >
             <Check className="h-4 w-4" />
           </Button>
@@ -89,13 +100,14 @@ const TaskItem = ({
             size="icon"
             variant="ghost"
             onClick={onCancelEdit}
+            aria-label="Hủy chỉnh sửa"
           >
             <X className="h-4 w-4" />
           </Button>
         </div>
       ) : (
         <>
-          <div className="flex-1 flex flex-col gap-1">
+          <div className="min-w-0 flex-1 flex flex-col gap-1 break-words">
             <span
               className={`${
                 task.status === "completed" ? "line-through" : ""
@@ -107,7 +119,7 @@ const TaskItem = ({
             >
               {task.title}
             </span>
-            <div className="flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
               <div className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
                 <span>Tạo: {formatDate(task.createdAt)}</span>
@@ -124,6 +136,8 @@ const TaskItem = ({
             size="icon"
             variant="ghost"
             onClick={() => onStartEdit(task)}
+            aria-label={`Sửa: ${task.title}`}
+            disabled={pending}
           >
             <Edit2 className="h-4 w-4" />
           </Button>
@@ -131,6 +145,8 @@ const TaskItem = ({
             size="icon"
             variant="ghost"
             onClick={() => onDelete(task._id)}
+            aria-label={`Xóa: ${task.title}`}
+            disabled={pending}
           >
             <Trash2 className="h-4 w-4 text-red-500" />
           </Button>
