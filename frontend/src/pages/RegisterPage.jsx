@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { register } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
+import AuthStatus from "@/components/AuthStatus";
 
 const RegisterPage = () => {
   const [username, setUsername] = useState("");
@@ -15,12 +16,10 @@ const RegisterPage = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { user, setUserFromAuth } = useAuth();
+  const { user, setUserFromAuth, loading: initializing, error } = useAuth();
 
-  if (user) {
-    navigate("/");
-    return null;
-  }
+  if (initializing || error) return <AuthStatus />;
+  if (user) return <Navigate to="/" replace />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,16 +34,17 @@ const RegisterPage = () => {
       return;
     }
 
-    if (password.length < 6) {
-      toast.error("Mật khẩu phải có ít nhất 6 ký tự");
+    if (password.length < 8 || new TextEncoder().encode(password).length > 72) {
+      toast.error("Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte UTF-8");
       return;
     }
 
     try {
       setLoading(true);
-      await register({ username, email, password });
-      toast.success("Đăng ký thành công! Vui lòng đăng nhập");
-      navigate("/login");
+      const data = await register({ username, email, password });
+      setUserFromAuth(data.user);
+      toast.success("Đăng ký thành công!");
+      navigate("/", { replace: true });
     } catch (error) {
       toast.error(error.message || "Đăng ký thất bại");
     } finally {
@@ -61,8 +61,9 @@ const RegisterPage = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Username</label>
+              <label htmlFor="username" className="text-sm font-medium">Username</label>
               <Input
+                id="username" autoComplete="username" required minLength={3} maxLength={30}
                 placeholder="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -70,8 +71,9 @@ const RegisterPage = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
               <Input
+                id="email" autoComplete="email" required maxLength={254}
                 type="email"
                 placeholder="email@example.com"
                 value={email}
@@ -80,8 +82,9 @@ const RegisterPage = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Mật khẩu</label>
+              <label htmlFor="password" className="text-sm font-medium">Mật khẩu</label>
               <Input
+                id="password" autoComplete="new-password" required minLength={8}
                 type="password"
                 placeholder="••••••••"
                 value={password}
@@ -90,8 +93,9 @@ const RegisterPage = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Xác nhận mật khẩu</label>
+              <label htmlFor="confirm-password" className="text-sm font-medium">Xác nhận mật khẩu</label>
               <Input
+                id="confirm-password" autoComplete="new-password" required minLength={8}
                 type="password"
                 placeholder="••••••••"
                 value={confirmPassword}
@@ -99,7 +103,7 @@ const RegisterPage = () => {
                 disabled={loading}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading} aria-label="Đăng ký" aria-busy={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Đăng ký"}
             </Button>
           </form>

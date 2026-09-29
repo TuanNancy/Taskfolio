@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 
 const NotFound = () => {
   return (
@@ -15,9 +14,7 @@ const NotFound = () => {
           Đường dẫn bạn đang tìm kiếm không tồn tại hoặc đã bị xóa.
         </p>
       </div>
-      <Button asChild>
-        <Link to="/">Về trang chủ</Link>
-      </Button>
+      <Link className="underline text-[hsl(var(--primary))]" to="/">Về trang chủ</Link>
     </div>
   );
 };

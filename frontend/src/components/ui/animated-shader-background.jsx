@@ -7,10 +7,16 @@ const AnimatedShaderBackground = () => {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch {
+      return; // Keep the CSS background when WebGL is unavailable.
+    }
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
@@ -91,8 +97,9 @@ const AnimatedShaderBackground = () => {
     scene.add(mesh);
 
     let frameId;
+    const startedAt = performance.now();
     const animate = () => {
-      material.uniforms.iTime.value += 0.016;
+      material.uniforms.iTime.value = (performance.now() - startedAt) / 1000;
       renderer.render(scene, camera);
       frameId = requestAnimationFrame(animate);
     };
@@ -119,7 +126,8 @@ const AnimatedShaderBackground = () => {
   return (
     <div 
       ref={containerRef} 
-      className="fixed inset-0 -z-10 overflow-hidden"
+      aria-hidden="true"
+      className="fixed inset-0 -z-10 overflow-hidden bg-slate-950"
       style={{ 
         width: '100vw', 
         height: '100vh',
