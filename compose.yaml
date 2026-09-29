@@ -1,0 +1,39 @@
+name: todo-tasks
+services:
+  mongo:
+    image: mongo:8.0
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    init: true
+    environment:
+      NODE_ENV: development
+      PORT: 5001
+      MONGO_URI: mongodb://mongo:27017/todo-app
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a random value of at least 32 characters}
+      FRONTEND_URL: http://localhost:8080
+      TRUST_PROXY_HOPS: 1
+    depends_on:
+      mongo: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+  web:
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    ports: ["127.0.0.1:8080:80"]
+    depends_on:
+      api: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+volumes:
+  mongo_data:
