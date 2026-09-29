@@ -1,16 +1,13 @@
-# React + Vite
+# Todo-Tasks frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Xem [README chính](../README.md) để chạy full-stack app và tests.
 
-Currently, two official plugins are available:
+Điểm vào để đọc code:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. `src/App.jsx`: QueryClient, AuthProvider và routes.
+2. `src/context/AuthContext.jsx`: session initialization, login/logout, expiry.
+3. `src/services/api.js`: Axios, CSRF header, errors và cancellation.
+4. `src/hooks/useTasks.js`: query keys, optimistic previews, mutation reconciliation.
+5. `src/components/TodoApp.jsx`: kết nối hook với task UI.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Tests được đặt riêng trong `tests/`, bên ngoài `src/`. Chạy `npm test` tại thư mục frontend khi cần kiểm tra. `tests/setup.js` và `tests/helpers.jsx` chỉ hỗ trợ tests, không tham gia chạy ứng dụng.
