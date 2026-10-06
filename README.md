@@ -180,11 +180,16 @@ Kiểm tra `/health/ready`, reload `/login`, và chạy luồng đăng nhập/CR
 | `compose.yaml` | Chạy local với MongoDB container |
 | `compose.production.yaml` | Chạy public với Atlas và HTTPS |
 | `deploy/Caddyfile` | Serve React và reverse proxy `/api` |
+| `deploy/README.md` | Cấu hình GHCR, GitHub Actions và deploy thủ công lên EC2 |
 | `.dockerignore` | Loại dependencies local, secrets và báo cáo khỏi build context |
 
 ## CI và deployment
 
-`.github/workflows/ci.yml` chỉ chạy lint, tests, frontend build và audit production dependencies. Workflow **chưa tự deploy lên AWS**.
+`.github/workflows/ci.yml` chạy lint, tests, frontend build, kiểm tra deployment scripts và audit production dependencies. Sau khi kiểm tra thành công trên `main`, workflow build/push hai Docker images `api` và `web` lên GHCR, hỗ trợ cả `linux/amd64` và `linux/arm64`. Mỗi image có tag `sha-<full-commit-sha>`; push/PR ở nhánh khác chỉ chạy kiểm tra.
+
+`.github/workflows/deploy.yml` là bước deploy **thủ công** (`workflow_dispatch`): chọn tag đã publish, pull images trên EC2, chạy Compose production và kiểm tra HTTPS `/health/ready`, `/login`. Workflow dùng file cấu hình đang có trên server và không build lại ở EC2.
+
+**EC2 có thể dừng trong lúc chạy CI và publish images.** Chỉ bật EC2 khi cần chạy bước deploy/demo; các workflows không tự bật/tắt EC2. Xem [hướng dẫn CD](deploy/README.md) để cấu hình GitHub environment, SSH và rollback. Cần chạy workflow thực tế để xác nhận quyền GHCR/SSH và môi trường live.
 
 `npm run build` chỉ build frontend. `npm start` chỉ khởi động API. Để phục vụ cả frontend/API, sử dụng Compose/Caddy như hướng dẫn ở trên.
 

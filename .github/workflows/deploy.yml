@@ -1,0 +1,80 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Published tag from CI (sha- followed by the full 40-character commit SHA)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Validate release tag
+        id: release
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [[ ! "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}$ ]]; then
+            echo "Expected sha- followed by a full lowercase commit SHA." >&2
+            exit 1
+          fi
+          echo "commit=${IMAGE_TAG#sha-}" >> "$GITHUB_OUTPUT"
+          echo "image_prefix=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Require a successful main-branch release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.commit }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner, repo,
+              workflow_id: "ci.yml",
+              head_sha: process.env.RELEASE_SHA,
+              branch: "main",
+              status: "success",
+              per_page: 100,
+            });
+            const release = data.workflow_runs.find((run) =>
+              ["push", "workflow_dispatch"].includes(run.event) &&
+              run.head_repository?.full_name === `${owner}/${repo}`
+            );
+            if (!release) {
+              core.setFailed("This commit needs a successful Verify application run on main, including both published images.");
+            }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          persist-credentials: false
+      - name: Deploy published images over SSH
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          IMAGE_PREFIX: ${{ steps.release.outputs.image_prefix }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_PORT: ${{ vars.EC2_PORT }}
+          EC2_APP_DIR: ${{ vars.EC2_APP_DIR }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: bash deploy/deploy.sh
+      - name: Record successful deployment
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: echo "Deployed \`$IMAGE_TAG\`; API readiness and HTTPS /login checks passed." >> "$GITHUB_STEP_SUMMARY"

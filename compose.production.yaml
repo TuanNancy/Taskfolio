@@ -2,7 +2,7 @@
 name: todo-tasks-production
 services:
   api:
-    image: todo-tasks-api:${APP_VERSION:-local}
+    image: ${IMAGE_PREFIX:-todo-tasks}-api:${APP_VERSION:-local}
     build: { context: ., dockerfile: backend/Dockerfile }
     init: true
     restart: unless-stopped
@@ -19,7 +19,7 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
   web:
-    image: todo-tasks-web:${APP_VERSION:-local}
+    image: ${IMAGE_PREFIX:-todo-tasks}-web:${APP_VERSION:-local}
     build: { context: ., dockerfile: frontend/Dockerfile }
     restart: unless-stopped
     environment:
