@@ -1,3 +1,4 @@
+# Local Docker Compose: serve React and proxy requests to the API service.
 {$SITE_ADDRESS} {
     encode zstd gzip
 

@@ -1,0 +1,35 @@
+{
+	default_sni {$BACKEND_IP}
+}
+
+https://{$BACKEND_IP} {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+			disable_tlsalpn_challenge
+		}
+	}
+
+	@health path /health/live /health/ready
+	handle @health {
+		reverse_proxy 127.0.0.1:5001
+	}
+
+	@vercel {
+		path /api /api/*
+		expression `{env.ORIGIN_SECRET} != "" && {http.request.header.X-Origin-Secret} == {env.ORIGIN_SECRET} && {http.request.header.X-Real-IP} != ""`
+	}
+	handle @vercel {
+		reverse_proxy 127.0.0.1:5001 {
+			# Vercel supplies X-Real-IP; Express trusts this Caddy hop only.
+			header_up X-Forwarded-For {http.request.header.X-Real-IP}
+			header_up -X-Origin-Secret
+			header_up -Forwarded
+		}
+	}
+
+	handle {
+		respond "Forbidden" 403
+	}
+}

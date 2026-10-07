@@ -144,54 +144,62 @@ Tất cả task endpoints yêu cầu đăng nhập và chỉ truy cập dữ li�
 ### Local
 
 1. Bật Docker Engine.
-2. Copy `deploy/.env.example` thành `deploy/.env.local`, điền `JWT_SECRET` ngẫu nhiên bằng lệnh ở trên.
+2. Copy `.env.example` thành `.env.local` tại root project, điền `JWT_SECRET` ngẫu nhiên bằng lệnh ở trên.
 3. Chạy tại root:
 
 ```sh
-docker compose --env-file deploy/.env.local up -d --build --wait
+docker compose --env-file .env.local up -d --build --wait
 ```
 
 Mở **http://localhost:8080**. Compose chạy Caddy, API và MongoDB. Chỉ web được mở trên localhost; dữ liệu MongoDB lưu trong volume.
 
 ```sh
-docker compose --env-file deploy/.env.local ps
-docker compose --env-file deploy/.env.local logs --tail 100 api
-docker compose --env-file deploy/.env.local down
+docker compose --env-file .env.local ps
+docker compose --env-file .env.local logs --tail 100 api
+docker compose --env-file .env.local down
 ```
 
 `down` giữ dữ liệu; thêm `--volumes` sẽ xóa database local.
 
-### Public server / AWS EC2
-
-`compose.production.yaml` dùng Atlas và HTTPS qua Caddy. Cần Docker trên server, domain trỏ tới server, cổng 80/443 được mở và Atlas cho phép IP egress của server. API port 5001 không được publish.
-
-Copy `deploy/.env.example` thành `deploy/.env.production`, điền `DOMAIN` (chỉ hostname), `MONGO_URI`, `JWT_SECRET` và `APP_VERSION` (tag release). File secrets được Git bỏ qua.
-
-```sh
-docker compose --env-file deploy/.env.production -f compose.production.yaml up -d --build --wait
-```
-
-Kiểm tra `/health/ready`, reload `/login`, và chạy luồng đăng nhập/CRUD/đăng xuất. Caddy tự cấp HTTPS khi DNS và kết nối tới domain đúng. Kiểm tra AWS credit và chi phí compute/storage/IPv4 trước khi tạo tài nguyên; cấu hình này chưa đồng nghĩa project đã được deploy lên AWS.
-
 | File | Vai trò |
 |---|---|
 | `backend/Dockerfile` | Build image Node.js chạy API |
-| `frontend/Dockerfile` | Build React, đóng gói cùng Caddy |
+| `frontend/Dockerfile` | Build React, đóng gói cùng Caddy cho Docker local |
 | `compose.yaml` | Chạy local với MongoDB container |
-| `compose.production.yaml` | Chạy public với Atlas và HTTPS |
-| `deploy/Caddyfile` | Serve React và reverse proxy `/api` |
-| `deploy/README.md` | Cấu hình GHCR, GitHub Actions và deploy thủ công lên EC2 |
+| `frontend/Caddyfile` | Serve React và reverse proxy `/api` trong Docker local |
+| `.env.example` | Mẫu cấu hình JWT secret cho Compose local |
 | `.dockerignore` | Loại dependencies local, secrets và báo cáo khỏi build context |
 
 ## CI và deployment
 
-`.github/workflows/ci.yml` chạy lint, tests, frontend build, kiểm tra deployment scripts và audit production dependencies. Sau khi kiểm tra thành công trên `main`, workflow build/push hai Docker images `api` và `web` lên GHCR, hỗ trợ cả `linux/amd64` và `linux/arm64`. Mỗi image có tag `sha-<full-commit-sha>`; push/PR ở nhánh khác chỉ chạy kiểm tra.
+### CI trên GitHub Actions
 
-`.github/workflows/deploy.yml` là bước deploy **thủ công** (`workflow_dispatch`): chọn tag đã publish, pull images trên EC2, chạy Compose production và kiểm tra HTTPS `/health/ready`, `/login`. Workflow dùng file cấu hình đang có trên server và không build lại ở EC2.
+`.github/workflows/ci.yml` chạy lint, backend/frontend tests, frontend build và audit production dependencies khi push, pull request hoặc chạy thủ công. Xem từng bước tại **GitHub → Actions → Verify application**. Workflow hiện chỉ kiểm tra code, chưa publish Docker images hay deploy lên EC2.
 
-**EC2 có thể dừng trong lúc chạy CI và publish images.** Chỉ bật EC2 khi cần chạy bước deploy/demo; các workflows không tự bật/tắt EC2. Xem [hướng dẫn CD](deploy/README.md) để cấu hình GitHub environment, SSH và rollback. Cần chạy workflow thực tế để xác nhận quyền GHCR/SSH và môi trường live.
+### Triển khai thủ công: Vercel + EC2 + Atlas
 
-`npm run build` chỉ build frontend. `npm start` chỉ khởi động API. Để phục vụ cả frontend/API, sử dụng Compose/Caddy như hướng dẫn ở trên.
+Kiến trúc dự kiến:
+
+```text
+Browser → Vercel (React và proxy /api qua HTTPS)
+             → EC2 Amazon Linux 2023 (reverse proxy + API container)
+                 → MongoDB Atlas
+```
+
+Thực hiện từng bước để hiểu quy trình trước khi tự động hóa:
+
+1. **Tạo EC2:** chọn Amazon Linux 2023, cấu hình network và SSH bằng `ec2-user`.
+2. **Chuẩn bị server:** cài Docker, đưa source code lên EC2 và tạo file cấu hình backend từ `backend/.env.example`. Điền URI Atlas, JWT secret, `NODE_ENV=production` và origin HTTPS thực tế của frontend; cho phép IP egress của EC2 truy cập Atlas.
+3. **Build backend:** tại root repository trên EC2, chạy `docker build -f backend/Dockerfile -t taskfolio-api .`. Image chứa Node.js, dependencies và code API; secrets được truyền khi chạy container.
+4. **Chạy backend:** cấu hình API container, HTTPS và reverse proxy theo địa chỉ server thực tế, rồi kiểm tra `/health/ready`.
+5. **Kết nối frontend:** import repository vào Vercel với Root Directory `frontend`, build `npm run build`, Output Directory `dist`. Dùng production URL `*.vercel.app`, frontend gọi `/api`; cấu hình external rewrite tới HTTPS backend trước route fallback React.
+6. **Kiểm tra bản live:** đăng ký/đăng nhập, CRUD task, reload và đăng xuất. Kiểm tra cookie, forwarded headers và rate limiting theo chuỗi proxy thực tế.
+
+Đây là lộ trình triển khai. HTTPS backend, Vercel API rewrite và cấu hình proxy production cần được thiết lập khi có địa chỉ EC2 và URL Vercel thực tế. `frontend/vercel.json` hiện chỉ xử lý fallback route React. Cần xác minh trên môi trường live để kết luận deployment thành công.
+
+Kiểm tra AWS credit và chi phí compute/storage/public IPv4 trước khi tạo tài nguyên. CI chạy trên GitHub, độc lập với trạng thái bật/tắt EC2.
+
+`npm run build` chỉ build frontend. `npm start` chỉ khởi động API. Compose ở trên phục vụ toàn bộ ứng dụng tại local; frontend production được Vercel build từ source.
 
 ## Giới hạn và lưu ý kỹ thuật
 
@@ -218,6 +226,7 @@ backend/
     validation/              # Request schemas
   tests/                     # API integration, HTTP boundaries
 frontend/
+  Caddyfile                  # Web server cho Docker local
   src/
     context/AuthContext.jsx  # Session lifecycle
     hooks/useTasks.js        # Queries, mutations, optimistic previews
@@ -225,7 +234,8 @@ frontend/
     components/              # Task UI
     pages/                   # Login, register, not found
   tests/                     # Frontend regression tests và test setup
-deploy/                      # Caddy và env template
+compose.yaml                 # Docker local: MongoDB, API và web
+.env.example                 # Mẫu cấu hình cho Compose local
 ```
 
 License: ISC.

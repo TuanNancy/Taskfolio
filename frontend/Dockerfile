@@ -7,6 +7,6 @@ RUN npm run build
 
 FROM caddy:2-alpine
 ENV SITE_ADDRESS=:80
-COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY frontend/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
 EXPOSE 80 443
