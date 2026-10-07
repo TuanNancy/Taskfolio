@@ -5,7 +5,7 @@
 - `frontend/src/` contains the React application: `components/`, `pages/`, `hooks/`, `context/`, and `services/`. Bundled assets live in `src/assets/`; static files live in `frontend/public/`.
 - `backend/src/` contains Express routes, controllers, middleware, validation, and configuration. `app.js` creates the HTTP application; `server.js` handles startup and shutdown. Mongoose models live in `backend/models/`.
 - Tests live separately in `backend/tests/` and `frontend/tests/`.
-- `deploy/`, Dockerfiles, and root Compose files support container deployment. `.github/workflows/ci.yml` runs verification.
+- Dockerfiles, `frontend/Caddyfile`, and `compose.yaml` support local containers. `.github/workflows/ci.yml` runs verification. Production targets Vercel for the frontend and manual Docker deployment on EC2 for the backend, with MongoDB Atlas.
 
 ## Build, Test, and Development Commands
 
