@@ -14,7 +14,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <Toaster />
+      <Toaster theme="system" position="bottom-right" closeButton toastOptions={{ style: { background: "hsl(var(--card))", color: "hsl(var(--foreground))", borderColor: "hsl(var(--border))", fontFamily: "inherit" } }} />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

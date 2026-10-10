@@ -9,6 +9,7 @@ export function useTasks() {
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState(new Set());
   const [optimistic, setOptimistic] = useState({});
+  const [mutationErrors, setMutationErrors] = useState({});
   const inFlight = useRef(new Set());
   const mounted = useRef(false);
   useEffect(() => {
@@ -39,6 +40,7 @@ export function useTasks() {
   const runMutation = async (id, operation, preview, successMessage) => {
     if (inFlight.current.has(id)) return false;
     inFlight.current.add(id);
+    setMutationErrors((previous) => ({ ...previous, [id]: null }));
     setPending(new Set(inFlight.current));
     await client.cancelQueries({ queryKey: ["tasks"] });
     if (!mounted.current) { inFlight.current.delete(id); return false; }
@@ -56,7 +58,10 @@ export function useTasks() {
       toast.success(successMessage);
       return true;
     } catch (failure) {
-      if (mounted.current) toast.error(failure.message);
+      if (mounted.current) {
+        setMutationErrors((previous) => ({ ...previous, [id]: failure.message }));
+        toast.error(failure.message);
+      }
       return false;
     } finally {
       if (mounted.current) {
@@ -79,9 +84,10 @@ export function useTasks() {
     .filter((task) => filter === "all" || task.status === filter);
 
   return {
-    tasks, filter, page, pagination, pending,
+    tasks, filter, page, pagination, pending, mutationErrors,
     counts: statistics.data || { total: "—", active: "—", completed: "—" },
     loading: list.isPending, refreshing: list.isFetching,
+    hasData: Boolean(list.data),
     error: list.error?.message, countsError: statistics.error?.message,
     refresh,
     changeFilter: (value) => { setFilter(value); setPage(1); },

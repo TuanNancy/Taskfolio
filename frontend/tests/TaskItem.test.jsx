@@ -26,7 +26,7 @@ it("exposes task actions and disables conflicting writes while pending", async (
   expect(onStartEdit).toHaveBeenCalledWith(task);
   expect(onDelete).toHaveBeenCalledWith("a");
   view.rerender(<TaskItem task={{ ...task, status: "completed", completedAt: new Date().toISOString() }} pending />);
-  expect(screen.getByRole("button", { name: "Hoàn thành: Task" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "Mở lại: Task" })).toHaveAttribute("aria-pressed", "true");
   for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
 });
 

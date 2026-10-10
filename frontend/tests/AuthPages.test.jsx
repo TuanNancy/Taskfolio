@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
-import { toast } from "sonner";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -23,7 +22,7 @@ const mount = (path) => render(<MemoryRouter initialEntries={[path]}><Routes>
 </Routes></MemoryRouter>);
 
 async function fillRegistration(password = "strong-password", confirmation = password) {
-  await userEvent.type(screen.getByLabelText("Username"), "newuser");
+  await userEvent.type(screen.getByLabelText("Tên người dùng"), "newuser");
   await userEvent.type(screen.getByLabelText("Email"), "new@example.com");
   await userEvent.type(screen.getByLabelText("Mật khẩu", { exact: true }), password);
   await userEvent.type(screen.getByLabelText("Xác nhận mật khẩu"), confirmation);
@@ -46,7 +45,9 @@ describe("auth pages", () => {
     await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
     await userEvent.type(screen.getByLabelText("Mật khẩu"), "password");
     await userEvent.click(screen.getByRole("button", { name: "Đăng nhập" }));
-    expect(toast.error).toHaveBeenCalledWith("Email hoặc mật khẩu không đúng");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Email hoặc mật khẩu không đúng");
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(screen.getByLabelText("Email")).toHaveValue("user@example.com");
   });
 
   it("uses the session created by registration instead of asking for a second login", async () => {
@@ -63,7 +64,8 @@ describe("auth pages", () => {
     await fillRegistration("password-one", "password-two");
     await userEvent.click(screen.getByRole("button", { name: "Đăng ký" }));
     expect(api.register).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith("Mật khẩu xác nhận không khớp");
+    expect(screen.getByText("Mật khẩu xác nhận không khớp.")).toBeVisible();
+    expect(screen.getByLabelText("Xác nhận mật khẩu")).toHaveAttribute("aria-invalid", "true");
   });
 
   it("shows registration errors without discarding the entered fields", async () => {
@@ -71,8 +73,47 @@ describe("auth pages", () => {
     mount("/register");
     await fillRegistration();
     await userEvent.click(screen.getByRole("button", { name: "Đăng ký" }));
-    expect(toast.error).toHaveBeenCalledWith("Account exists");
-    expect(screen.getByLabelText("Username")).toHaveValue("newuser");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Account exists");
+    expect(screen.getByLabelText("Tên người dùng")).toHaveValue("newuser");
+  });
+
+  it("focuses the error summary and links errors to the invalid fields", async () => {
+    mount("/register");
+    await userEvent.click(screen.getByRole("button", { name: "Đăng ký" }));
+    expect(api.register).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveFocus();
+    await userEvent.click(screen.getByRole("link", { name: "Email", exact: true }));
+    expect(screen.getByLabelText("Email")).toHaveFocus();
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Nhập địa chỉ email của bạn.");
+  });
+
+  it("connects server validation errors to fields", async () => {
+    api.register.mockRejectedValue(Object.assign(new Error("Validation error"), { fields: [{ field: "email", message: "Email chưa hợp lệ" }] }));
+    mount("/register");
+    await fillRegistration();
+    await userEvent.click(screen.getByRole("button", { name: "Đăng ký" }));
+    expect(await screen.findByText("Email chưa hợp lệ")).toBeVisible();
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription("Email chưa hợp lệ");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("reveals and hides the same password input without discarding its value", async () => {
+    mount("/login");
+    const input = screen.getByLabelText("Mật khẩu", { exact: true });
+    await userEvent.type(input, "my-password");
+    await userEvent.click(screen.getByRole("button", { name: "Hiện mật khẩu", exact: true }));
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveValue("my-password");
+    await userEvent.click(screen.getByRole("button", { name: "Ẩn mật khẩu", exact: true }));
+    expect(input).toHaveAttribute("type", "password");
+  });
+
+  it("applies the UTF-8 password limit before submitting registration", async () => {
+    mount("/register");
+    await fillRegistration("ậ".repeat(25), "ậ".repeat(25));
+    await userEvent.click(screen.getByRole("button", { name: "Đăng ký" }));
+    expect(api.register).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Mật khẩu", { exact: true })).toHaveAttribute("aria-invalid", "true");
   });
 
   it.each(["/login", "/register", "/private"])("waits for initialization on %s", (path) => {
