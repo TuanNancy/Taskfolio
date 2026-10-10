@@ -1,37 +1,15 @@
 import { Button } from "@/components/ui/button";
 
-const FilterBar = ({ filter, counts, onFilterChange }) => {
-  return (
-    <div className="flex flex-wrap gap-2" role="group" aria-label="Lọc trạng thái">
-      <Button
-        variant={filter === "all" ? "default" : "outline"}
-        aria-pressed={filter === "all"}
-        size="sm"
-        onClick={() => onFilterChange("all")}
-        className="flex-1"
-      >
-        Tất cả ({counts.total})
-      </Button>
-      <Button
-        variant={filter === "active" ? "default" : "outline"}
-        aria-pressed={filter === "active"}
-        size="sm"
-        onClick={() => onFilterChange("active")}
-        className="flex-1"
-      >
-        Đang làm ({counts.active})
-      </Button>
-      <Button
-        variant={filter === "completed" ? "default" : "outline"}
-        aria-pressed={filter === "completed"}
-        size="sm"
-        onClick={() => onFilterChange("completed")}
-        className="flex-1"
-      >
-        Hoàn thành ({counts.completed})
-      </Button>
-    </div>
-  );
-};
+const filters = [["all", "Tất cả", "total"], ["active", "Đang làm", "active"], ["completed", "Hoàn thành", "completed"]];
 
-export default FilterBar;
+export default function FilterBar({ filter, counts, onFilterChange }) {
+  return <div className="flex flex-wrap gap-1 rounded-2xl border border-border bg-muted p-1" role="group" aria-label="Lọc trạng thái">
+    {filters.map(([value, label, count]) => <Button
+      key={value} variant="ghost" aria-pressed={filter === value} aria-label={`${label} (${counts[count]})`}
+      onClick={() => onFilterChange(value)}
+      className={`min-w-0 flex-1 basis-20 flex-wrap gap-x-2 px-2 text-xs sm:text-sm ${filter === value ? "bg-card text-primary shadow-sm hover:bg-card" : "text-muted-foreground"}`}
+    >
+      {label}<span aria-hidden="true" className={`rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${filter === value ? "bg-secondary text-secondary-foreground" : "bg-background text-muted-foreground"}`}>{counts[count]}</span>
+    </Button>)}
+  </div>;
+}
