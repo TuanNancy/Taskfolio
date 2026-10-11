@@ -25,8 +25,97 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix backend
       - run: npm ci --prefix frontend
+      - name: Check deployment scripts
+        run: shellcheck deploy/*.sh
       - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high --prefix backend
       - run: npm audit --omit=dev --audit-level=high --prefix frontend
+
+  publish:
+    name: Publish backend image
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-api" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  deploy:
+    name: Deploy backend to EC2
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: production-backend
+      cancel-in-progress: false
+    steps:
+      - name: Skip superseded releases
+        id: current
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.getBranch({
+              ...context.repo, branch: "main",
+            });
+            const current = data.commit.sha === context.sha;
+            core.setOutput("deploy", String(current));
+            if (!current) await core.summary.addRaw("Skipped backend deployment: a newer commit is on main.").write();
+      - uses: actions/checkout@v4
+        if: steps.current.outputs.deploy == 'true'
+        with:
+          persist-credentials: false
+      - name: Deploy and check backend
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          RELEASE_ID: sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          API_IMAGE: ${{ needs.publish.outputs.image }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_PORT: ${{ vars.EC2_PORT }}
+          EC2_APP_DIR: ${{ vars.EC2_APP_DIR }}
+          BACKEND_ORIGIN: ${{ vars.BACKEND_ORIGIN }}
+          FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          bash deploy/deploy.sh
+          echo "Backend release \`$RELEASE_ID\` passed container, Caddy readiness and Vercel API checks." >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: \`$API_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"

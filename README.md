@@ -161,9 +161,14 @@ docker compose --env-file .env.local down
 
 `down` giữ dữ liệu; thêm `--volumes` sẽ xóa database local.
 
+Nếu container không chạy, dùng `docker compose --env-file .env.local ps -a` để xem cả containers đã dừng và `docker compose --env-file .env.local logs --tail 100 mongo` để đọc lỗi MongoDB.
+
+Compose local đặt `GLIBC_TUNABLES=glibc.pthread.rseq=1` cho MongoDB để tránh lỗi TCMalloc trên Linux kernel 6.19–7.0.13, bao gồm một số phiên bản Docker Desktop ([SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912)). Đây là workaround local: TCMalloc dùng per-thread cache thay cho per-CPU cache, có thể giảm hiệu năng. Atlas được quản lý riêng và không sử dụng cấu hình này.
+
 | File | Vai trò |
 |---|---|
 | `backend/Dockerfile` | Build image Node.js chạy API |
+| `backend/Caddyfile` | HTTPS và proxy API trên EC2, xác thực request từ Vercel |
 | `frontend/Dockerfile` | Build React, đóng gói cùng Caddy cho Docker local |
 | `compose.yaml` | Chạy local với MongoDB container |
 | `frontend/Caddyfile` | Serve React và reverse proxy `/api` trong Docker local |
@@ -172,13 +177,15 @@ docker compose --env-file .env.local down
 
 ## CI và deployment
 
-### CI trên GitHub Actions
+### CI/CD trên GitHub Actions
 
-`.github/workflows/ci.yml` chạy lint, backend/frontend tests, frontend build và audit production dependencies khi push, pull request hoặc chạy thủ công. Xem từng bước tại **GitHub → Actions → Verify application**. Workflow hiện chỉ kiểm tra code, chưa publish Docker images hay deploy lên EC2.
+`.github/workflows/ci.yml` chạy lint, backend/frontend tests, frontend build và audit production dependencies khi push, pull request hoặc chạy thủ công. Khi CI pass trên `main` (push hoặc Run workflow), pipeline publish **image backend** lên GHCR rồi deploy EC2 bằng digest, kiểm tra health và auto-rollback nếu lỗi. Frontend dùng Git integration của Vercel.
 
-### Triển khai thủ công: Vercel + EC2 + Atlas
+Thiết lập GitHub environment `production`, SSH, env backend và chuyển từ container thủ công theo **[hướng dẫn CD backend](deploy/README.md)** trước lần chạy đầu. Xem jobs tại **GitHub → Actions → Verify application**. Workflow đã được cấu hình trong repo; trạng thái triển khai thực tế cần xác minh trên môi trường live.
 
-Kiến trúc dự kiến:
+### Chuẩn bị hạ tầng: Vercel + EC2 + Atlas
+
+Kiến trúc triển khai:
 
 ```text
 Browser → Vercel (React và proxy /api qua HTTPS)
@@ -186,18 +193,39 @@ Browser → Vercel (React và proxy /api qua HTTPS)
                  → MongoDB Atlas
 ```
 
-Thực hiện từng bước để hiểu quy trình trước khi tự động hóa:
+Chuẩn bị hạ tầng một lần trước khi bật CD:
 
 1. **Tạo EC2:** chọn Amazon Linux 2023, cấu hình network và SSH bằng `ec2-user`.
 2. **Chuẩn bị server:** cài Docker, đưa source code lên EC2 và tạo file cấu hình backend từ `backend/.env.example`. Điền URI Atlas, JWT secret, `NODE_ENV=production` và origin HTTPS thực tế của frontend; cho phép IP egress của EC2 truy cập Atlas.
-3. **Build backend:** tại root repository trên EC2, chạy `docker build -f backend/Dockerfile -t taskfolio-api .`. Image chứa Node.js, dependencies và code API; secrets được truyền khi chạy container.
-4. **Chạy backend:** cấu hình API container, HTTPS và reverse proxy theo địa chỉ server thực tế, rồi kiểm tra `/health/ready`.
-5. **Kết nối frontend:** import repository vào Vercel với Root Directory `frontend`, build `npm run build`, Output Directory `dist`. Dùng production URL `*.vercel.app`, frontend gọi `/api`; cấu hình external rewrite tới HTTPS backend trước route fallback React.
+3. **Thiết lập CD backend:** chuẩn bị `/opt/taskfolio/backend.env`, Docker Compose và biến/secret GitHub theo `deploy/README.md`. GitHub build/push image, EC2 pull bản được pin bằng digest.
+4. **Chạy backend:** cấu hình HTTPS và reverse proxy theo địa chỉ server thực tế, chạy workflow trên `main`, rồi kiểm tra `/health/ready`.
+5. **Kết nối frontend:** import repository vào Vercel với Root Directory `frontend`, build `npm run build`, Output Directory `dist`. Dùng production URL `*.vercel.app`, frontend gọi `/api`; `frontend/vercel.json` chuyển API tới HTTPS backend trước static files và fallback React.
 6. **Kiểm tra bản live:** đăng ký/đăng nhập, CRUD task, reload và đăng xuất. Kiểm tra cookie, forwarded headers và rate limiting theo chuỗi proxy thực tế.
 
-Đây là lộ trình triển khai. HTTPS backend, Vercel API rewrite và cấu hình proxy production cần được thiết lập khi có địa chỉ EC2 và URL Vercel thực tế. `frontend/vercel.json` hiện chỉ xử lý fallback route React. Cần xác minh trên môi trường live để kết luận deployment thành công.
+#### Cấu hình proxy Vercel → Caddy → Express
 
-Kiểm tra AWS credit và chi phí compute/storage/public IPv4 trước khi tạo tài nguyên. CI chạy trên GitHub, độc lập với trạng thái bật/tắt EC2.
+`frontend/vercel.json` dùng `routes` để vừa proxy `/api` vừa thêm request header `X-Origin-Secret` từ biến môi trường Vercel `ORIGIN_SECRET`. Đây là khóa riêng giữa hai proxy, không phải JWT secret và không dùng tiền tố `VITE_`. Dùng cùng giá trị trên Vercel và container Caddy.
+
+- Backend: `FRONTEND_URL=https://taskfolio-one.vercel.app`, `COOKIE_SAME_SITE=lax`, `TRUST_PROXY_HOPS=1`. Publish API bằng `-p 127.0.0.1:5001:5001`.
+- Vercel: thêm `ORIGIN_SECRET` cho **Production** trước khi deploy cấu hình mới. Frontend mặc định gọi `/api`; nếu đã đặt `VITE_API_URL`, đặt giá trị `/api`. Deploy vào Production để domain ổn định nhận cấu hình mới.
+- Caddy: dùng `backend/Caddyfile` với image `caddy:2.11.7-alpine`, `--network host`, mở TCP 80/443 trên EC2. Đặt `BACKEND_IP` và `ORIGIN_SECRET` trong file runtime ngoài repository, ví dụ `$HOME/taskfolio-proxy.env`, quyền `600`; truyền qua `--env-file`.
+- Mount Caddyfile tại `/etc/caddy/Caddyfile:ro`; giữ named volumes `/data` và `/config` để lưu chứng chỉ/cấu hình. Chứng chỉ IP dùng profile Let's Encrypt `shortlived`; Caddy tự quản lý gia hạn khi máy chạy và cổng xác minh truy cập được.
+
+Tạo khóa bằng `openssl rand -hex 32`, lưu cùng giá trị ở hai nơi trên. Caddy chỉ chuyển API khi khóa khớp và có `X-Real-IP` do Vercel cung cấp. Caddy chuẩn hóa `X-Forwarded-For` thành IP đó rồi bỏ header khóa trước khi chuyển tới Express. Vì vậy Express chỉ cần tin một proxy sát nó (`TRUST_PROXY_HOPS=1`); rate limit phân biệt từng client. Khi thiếu khóa cấu hình, request API bị từ chối. Health endpoints vẫn truy cập trực tiếp được.
+
+Sau khi sửa env file phải tạo lại container tương ứng; `docker restart` không nạp lại env file. Khi EC2 đổi IP, cập nhật `BACKEND_IP`, IP allowlist của Atlas và host đích trong `frontend/vercel.json` (hiện là `34.229.52.18`), rồi áp dụng lại cấu hình Caddy và deploy lại Vercel.
+
+Kiểm tra sau khi áp dụng:
+
+```sh
+curl -i https://34.229.52.18/health/ready
+curl -i https://34.229.52.18/api/auth/me
+curl -i https://taskfolio-one.vercel.app/api/auth/me
+```
+
+Mong đợi lần lượt: `200` readiness, `403` khi gọi thẳng API thiếu khóa proxy, `401` JSON khi gọi qua Vercel chưa đăng nhập. Nếu Vercel trả HTML, kiểm tra route API, Root Directory và deployment đang gắn domain Production. Sau đó kiểm tra đăng ký/đăng nhập, CRUD task, reload và logout trên trình duyệt; cookie `token` phải có `HttpOnly`, `Secure`, `SameSite=Lax` trên domain frontend. Cần xác minh luồng live này và theo dõi một chu kỳ gia hạn trước khi kết luận toàn bộ triển khai/gia hạn thành công.
+
+Kiểm tra AWS credit và chi phí compute/storage/public IPv4 trước khi tạo tài nguyên. CI/publish chạy trên GitHub; job deploy cần EC2 hoạt động và truy cập được qua SSH.
 
 `npm run build` chỉ build frontend. `npm start` chỉ khởi động API. Compose ở trên phục vụ toàn bộ ứng dụng tại local; frontend production được Vercel build từ source.
 
@@ -216,6 +244,7 @@ Kiểm tra AWS credit và chi phí compute/storage/public IPv4 trước khi tạ
 
 ```text
 backend/
+  Caddyfile                  # HTTPS/proxy API cho EC2 thủ công
   models/                    # User, Task, indexes
   src/
     app.js                   # HTTP middleware và routes

@@ -1,0 +1,18 @@
+name: taskfolio-backend
+services:
+  api:
+    image: ${API_IMAGE:?Set a digest-pinned backend image}
+    env_file:
+      - ${BACKEND_ENV_FILE:?Set the absolute server environment file path}
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      TRUST_PROXY_HOPS: 1
+    ports:
+      - "127.0.0.1:5001:5001"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
