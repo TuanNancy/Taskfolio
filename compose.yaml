@@ -2,6 +2,10 @@ name: todo-tasks
 services:
   mongo:
     image: mongo:8.0
+    environment:
+      # Local workaround for MongoDB's TCMalloc per-CPU cache on kernels 6.19–7.0.13.
+      # Enable glibc rseq so TCMalloc falls back to per-thread caches (SERVER-121912).
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
     volumes:
       - mongo_data:/data/db
     healthcheck:
